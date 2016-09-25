@@ -1,0 +1,15 @@
+#define LED 13
+ 
+void setup() {
+  Serial.begin(115200);
+  Serial.println("MiCS-5524");
+ 
+  pinMode(LED, OUTPUT);
+}
+ 
+void loop() {
+  int reading = analogRead(A0);
+  Serial.println(reading);
+  analogWrite(LED, reading);
+  delay(1000);
+}
