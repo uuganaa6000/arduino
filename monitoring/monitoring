@@ -1,12 +1,11 @@
-/*
- *  Simple HTTP get webclient test
- */
- 
 #include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
 void ledsetup(void);
 void ledloop(void);
+void ledAirconController(int commandReciever);
 void BME280Setup(void);
 void BME280loop(double BME280Result[4]);
+StaticJsonBuffer<200> jsonBuffer;
 
 const char* ssid     = "W03_FC3F7CBF3546";
 const char* password = "r46am0gb91bir54";
@@ -29,7 +28,7 @@ int connectWifi(void){
 
 void setup() {
   Serial.begin(115200);
-  // We start by connecting to a WiFi network
+  // start by connecting to a WiFi network
   Serial.println();
   Serial.println();
   Serial.print("Connecting to ");
@@ -51,74 +50,99 @@ void setup() {
   }
 }
 
-int8_t utc_offset = +9; // hours off of UTC, e.g. JP is +9 
 const char* host = "52.68.218.117";
 const int httpPort = 80;
-int16_t weathercode = -1;
-int16_t createhour, createmin;
-uint32_t timekeep=0xFFFF;
-
 void updateTemp(double BME280Result[4]) {
   Serial.print("Connecting to "); Serial.println(host);
-  
-  // Use WiFiClient class to create TCP connections
   WiFiClient client;
   if (!client.connect(host, httpPort)) {
     Serial.println("Connection failed");
     return;
   }
-  // We now create a URI for the request
-  // String url = String(path_prefix) + String(location) + String(path_postfix);
   String param_temperature = "temperature=" + String(BME280Result[0]);
   String param_humidity = "&humidity=" + String(BME280Result[2]);
   String param_pressure = "&pressure=" + String(BME280Result[1]);
   String url = "/sbaby/set_json.php?" + param_temperature + param_humidity + param_pressure;
   
   Serial.print("Requesting URL: ");  Serial.println(url);
-  
-  // This will send the request to the server
+  client.print(String("GET ") + url + " HTTP/1.1\r\n" +
+               "Host: " + host + "\r\n" + 
+               "Connection: close\r\n\r\n");
+  delay(1000);
+  int rownums = 0;
+  while(client.available()){
+    String line = client.readStringUntil('\r');
+    rownums++;
+    if(rownums > 7){
+       if (line.length() < 2){
+         Serial.println("continue");
+         continue;
+       }
+       String jsonstr = line.substring(2, line.length() - 1);
+       JsonObject& root = jsonBuffer.parseObject(jsonstr);
+       root.printTo(Serial);
+       if (!root.success()) {
+         Serial.println("parseObject() failed");
+       }else{
+         String res = root["result"];
+         if(res != "OK"){
+             Serial.println("errors with update query");
+         }
+       }
+    }
+  }
+  Serial.println("Closing connection");
+}
+
+void airconController() {
+  Serial.print("Connecting to "); Serial.println(host);
+  WiFiClient client;
+  if (!client.connect(host, httpPort)) {
+    Serial.println("Connection failed");
+    return;
+  }
+  String url = "/sbaby/get_switch.php";
+  Serial.print("Requesting URL: ");  Serial.println(url);
   client.print(String("GET ") + url + " HTTP/1.1\r\n" +
                "Host: " + host + "\r\n" + 
                "Connection: close\r\n\r\n");
   delay(500);
-
-  weathercode = -1;
-  // Read all the lines of the reply from server and print them to Serial
+  int rownums = 0;
+  StaticJsonBuffer<200> buffer;
   while(client.available()){
     String line = client.readStringUntil('\r');
-    int i = line.indexOf(String("\"code\":"));
-    if (i < 0) continue;
-    Serial.println(line);
-    weathercode = (line.substring(i+8)).toInt();
-
-    // extract hour and minute
-    i = line.indexOf(String("\"created\":"));
-    if (i < 0) continue;
-    createhour = (line.substring(i+22)).toInt();
-    createmin = (line.substring(i+25)).toInt();
+    rownums++;
+    if(rownums > 7){
+       if (line.length() < 2){
+         Serial.println("continue");
+         continue;
+       }
+       //JsonArray& array = buffer.parseArray(line);
+       String jsonstr = line.substring(2, line.length() - 1);
+       JsonObject& root = buffer.parseObject(jsonstr);
+       root.printTo(Serial);
+       if (!root.success()) {
+         Serial.println("airconController: parseObject() failed");
+       }else{
+         int swtch = root["_switch"];
+         ledAirconController(swtch);
+       }
+       Serial.println(jsonstr);
+    }
   }
-  
   Serial.println("Closing connection");
-
-  // convert from UTC to local
-  createhour += 24;
-  createhour += utc_offset;
-  createhour %= 24;
-  Serial.print("\nWeather code: "); Serial.print(weathercode);
-  Serial.print(" @ "); Serial.print(createhour); Serial.print(":"); Serial.println(createmin);
-
-  // Get the current time of day, between 0 and 65535
-  uint16_t timeofday = map((createhour * 60) + createmin, 0, 1440, 0, 65535);
-
-  Serial.print("Time of day = "); Serial.print(timeofday); Serial.println("/65535");
-  delay(10000);
 }
 
-
-int value = 0;
+int times = 0;
 void loop() {
   ledloop();
-  double BME280Result[4];
-  BME280loop(BME280Result);
-  updateTemp(BME280Result);
+  if((times % 10) == 0){
+    double BME280Result[4];
+    BME280loop(BME280Result);
+    updateTemp(BME280Result);
+    times = 0;
+  }
+  airconController();
+  times++;
+  delay(500);
 }
