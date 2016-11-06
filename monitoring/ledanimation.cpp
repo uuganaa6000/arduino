@@ -63,3 +63,13 @@ void ledloop(void) {
   }
   startup = 1;
 }
+
+void ledAirconController(int commandReciever) {
+  if(commandReciever == 1){
+      colorWipe(strip.Color(0, 128, 0), 0); // green
+  }
+  else if(commandReciever == 0){
+      colorWipe(strip.Color(0, 0, 0), 0); // black
+  }
+}
+
